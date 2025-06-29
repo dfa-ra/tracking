@@ -2,26 +2,25 @@ package org.example;
 
 import org.bytedeco.javacv.CanvasFrame;
 import org.bytedeco.javacv.Frame;
-import org.bytedeco.javacv.FrameGrabber;
 import org.bytedeco.javacv.OpenCVFrameConverter;
-import org.bytedeco.opencv.opencv_core.CvScalar;
-import org.bytedeco.opencv.opencv_core.IplImage;
-import static org.bytedeco.opencv.global.opencv_core.*;
-import static org.bytedeco.opencv.global.opencv_imgproc.*;
+import org.bytedeco.opencv.opencv_core.Mat;
+import org.example.faceWorker.FaceDetection;
+import org.example.utils.CameraUtils;
 
 
 public class Tracking {
     private final CanvasFrame canvas;
-    private final CameraTracking cameraTracking;
-    private final OpenCVFrameConverter.ToIplImage converter;
+    private final CameraUtils cameraTracking;
+    private final FaceDetection faceDetection;
+    private final OpenCVFrameConverter.ToMat matConverter;
 
-    public Tracking(String name) throws FrameGrabber.Exception {
+    public Tracking(String name) throws Exception {
 
         canvas = new CanvasFrame(name);
         canvas.setDefaultCloseOperation(javax.swing.JFrame.EXIT_ON_CLOSE);
-        converter = new OpenCVFrameConverter.ToIplImage();
-        cameraTracking = new CameraTracking(0);
-
+        matConverter = new OpenCVFrameConverter.ToMat();
+        faceDetection = new FaceDetection();
+        cameraTracking = new CameraUtils(0);
     }
 
     public void run() throws Exception {
@@ -31,10 +30,11 @@ public class Tracking {
                 onStop();
                 break;
             }
-            IplImage img = converter.convert(frame);
-            if (img != null) {
-                cvCircle(img, cvPoint(320, 240), 50, CvScalar.RED, 2, CV_AA, 0);
-                canvas.showImage(converter.convert(img));
+            Mat mat = matConverter.convert(frame);
+
+            if (mat != null) {
+                faceDetection.detected(mat, new Drawer());
+                canvas.showImage(matConverter.convert(mat));
             }
             Thread.sleep(50);
         }

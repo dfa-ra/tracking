@@ -85,17 +85,14 @@ public class HandsDetection {
         }
     }
 
-
-    public List<Mat> detect(Mat image) throws OrtException {
-        Rect handBox = detectHandBox(image);
-        if (handBox == null) return new ArrayList<>();
+    private Mat rect2mat(Rect rect) {
         Mat mat = new Mat(5, 1, CV_32SC2);
         IntIndexer indexer = mat.createIndexer();
 
-        int x = handBox.x();
-        int y = handBox.y();
-        int w = handBox.width();
-        int h = handBox.height();
+        int x = rect.x();
+        int y = rect.y();
+        int w = rect.width();
+        int h = rect.height();
 
         indexer.put(0, 0, 0, x);
         indexer.put(0, 0, 1, y);
@@ -108,9 +105,11 @@ public class HandsDetection {
         indexer.put(4, 0, 0, x);
         indexer.put(4, 0, 1, y);
 
-        List<Mat> listOfMats = new ArrayList<>();
-        listOfMats.add(mat);
-        return listOfMats;
+        return mat;
+    }
+
+    public List<Mat> detect(Mat image) throws OrtException {
+        return detectHandBox(image);
     }
 
     private ResizeInfo resizeMat(Mat mat) {
@@ -135,7 +134,8 @@ public class HandsDetection {
         return new ResizeInfo(output, scale, xOffset, yOffset);
     }
 
-    public Rect detectHandBox(Mat image) throws OrtException {
+    public List<Mat> detectHandBox(Mat image) throws OrtException {
+        List<Mat> result = new ArrayList<>();
         int H = image.rows(), W = image.cols();
 
 
@@ -168,41 +168,84 @@ public class HandsDetection {
 
             try (OrtSession.Result resultPostProcessingModel = sessionPostProcessingModel.run(Map.of("classificators", tensorScores, "regressors", tensorBoxes))){
 
-                float[][] detections = (float[][]) resultPostProcessingModel.get(0).getValue();
+                float[][] detectionsBox = (float[][]) resultPostProcessingModel.get(0).getValue();
 
-                // Обработка результатов детекции
-                if (detections.length == 0 || detections[0].length < 8) {
-                    return null;
+                System.out.println(Arrays.deepToString(detectionsBox));
+
+
+                Mat hand1Rect = new Mat();
+                Mat hand2Rect = new Mat();
+                Mat hand1Keypoints = new Mat(7, 2, CV_32S);
+                Mat hand2Keypoints = new Mat(7, 2, CV_32S);
+
+                IntIndexer h1kpIndexer = hand1Keypoints.createIndexer();
+                IntIndexer h2kpIndexer = hand2Keypoints.createIndexer();
+
+                System.out.println(Arrays.deepToString(detectionsBox));
+                for (int i = 0; i < Math.min(2, detectionsBox.length); i++) {
+                    float[] detection = detectionsBox[i];
+                    float score = detection[0];
+
+                    if (score < 0.5f) continue;
+
+                    float cx = detection[1] * W;
+                    float cy = detection[2] * H;
+                    float width = detection[3] * W;
+
+                    int x1 = Math.max(0, Math.min(Math.round(cx - width/2), W-1));
+                    int y1 = Math.max(0, Math.min(Math.round(cy - width/2), H-1));
+                    int x2 = Math.max(0, Math.min(Math.round(cx + width/2), W-1));
+                    int y2 = Math.max(0, Math.min(Math.round(cy + width/2), H-1));
+
+                    for (int j = 0; j < 7; j++) {
+                        int kpX = Math.round(detection[4 + j*2] * W);
+                        int kpY = Math.round(detection[5 + j*2] * H);
+
+                        if (i == 0) {
+                            h1kpIndexer.put(j, 0, kpX);
+                            h1kpIndexer.put(j, 1, kpY);
+                        } else {
+                            h2kpIndexer.put(j, 0, kpX);
+                            h2kpIndexer.put(j, 1, kpY);
+                        }
+                    }
+
+                    if (i == 0) {
+                        hand1Rect = new Mat(5, 1, CV_32SC2);
+                        IntIndexer rectIndexer = hand1Rect.createIndexer();
+                        rectIndexer.put(0, 0, 0, x1);
+                        rectIndexer.put(0, 0, 1, y1);
+                        rectIndexer.put(1, 0, 0, x2);
+                        rectIndexer.put(1, 0, 1, y1);
+                        rectIndexer.put(2, 0, 0, x2);
+                        rectIndexer.put(2, 0, 1, y2);
+                        rectIndexer.put(3, 0, 0, x1);
+                        rectIndexer.put(3, 0, 1, y2);
+                        rectIndexer.put(4, 0, 0, x1);
+                        rectIndexer.put(4, 0, 1, y1);
+                    } else {
+                        hand2Rect = new Mat(5, 1, CV_32SC2);
+                        IntIndexer rectIndexer = hand2Rect.createIndexer();
+                        rectIndexer.put(0, 0, 0, x1);
+                        rectIndexer.put(0, 0, 1, y1);
+                        rectIndexer.put(1, 0, 0, x2);
+                        rectIndexer.put(1, 0, 1, y1);
+                        rectIndexer.put(2, 0, 0, x2);
+                        rectIndexer.put(2, 0, 1, y2);
+                        rectIndexer.put(3, 0, 0, x1);
+                        rectIndexer.put(3, 0, 1, y2);
+                        rectIndexer.put(4, 0, 0, x1);
+                        rectIndexer.put(4, 0, 1, y1);
+                    }
                 }
 
-                // Берем первую (наиболее уверенную) детекцию
-                float[] bestDetection = detections[0];
-                float score = bestDetection[0];
 
-                // Фильтр по confidence
-                if (score < 0.5f) {
-                    return null;
-                }
+                result.add(hand1Rect);
+                result.add(hand2Rect);
+                result.add(hand1Keypoints);
+                result.add(hand2Keypoints);
 
-                // Преобразование нормализованных координат в пиксельные
-                float cx = bestDetection[1] * W;
-                float cy = bestDetection[2] * H;
-                float width = bestDetection[3] * W;
-                float height = width; // Квадратный bounding box
-
-                // Координаты углов прямоугольника
-                int x1 = Math.round(cx - width/2);
-                int y1 = Math.round(cy - height/2);
-                int x2 = Math.round(cx + width/2);
-                int y2 = Math.round(cy + height/2);
-
-                // Проверка границ изображения
-                x1 = Math.max(0, Math.min(x1, W-1));
-                y1 = Math.max(0, Math.min(y1, H-1));
-                x2 = Math.max(0, Math.min(x2, W-1));
-                y2 = Math.max(0, Math.min(y2, H-1));
-
-                return new Rect(x1, y1, x2 - x1, y2 - y1);
+                return result;
             }
         }
     }
